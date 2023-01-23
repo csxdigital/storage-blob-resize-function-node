@@ -81,3 +81,56 @@ module.exports = async function (context, myEvent, inputBlob){
 ```
 
 You can use the [Azure Storage Explorer](https://azure.microsoft.com/features/storage-explorer/) to view blob containers and verify the resize is successful.
+
+## Notes env implementation
+
+#source link https://learn.microsoft.com/en-us/azure/event-grid/storage-upload-process-images?tabs=dotnet%2Cazure-powershell
+
+#Create a storage account in the resource group
+$blobStorageAccount="imagesiasx-blobStAcc"
+$resourceGroupName="preditiva.prod"
+$location="brazilsouth"
+$container1Name="imgsuploaded"
+$container2Name="imgsresized"
+
+New-AzStorageAccount -ResourceGroupName $resourceGroupName -Name $blobStorageAccount -SkuName Standard_LRS -Location $location -Kind StorageV2 -AccessTier Hot
+
+#Get the storage account key then use this key to create two containers 
+$blobStorageAccountKey = ((Get-AzStorageAccountKey -ResourceGroupName $myResourceGroup -Name $blobStorageAccount)| Where-Object {$_.KeyName -eq "key1"}).Value
+$blobStorageContext = New-AzStorageContext -StorageAccountName $blobStorageAccount -StorageAccountKey $blobStorageAccountKey
+
+New-AzStorageContainer -Name $container1Name -Context $blobStorageContext
+New-AzStorageContainer -Name $container2Name -Permission Container -Context $blobStorageContext
+
+
+#Automate resizing uploaded images using Event Grid
+$resourceGroupName="preditiva.prod"
+$location="brazilsouth"
+$blobStorageAccount="imagesiasx"
+#Create an Azure Storage account - (Not necessary)
+#New-AzStorageAccount -ResourceGroupName $resourceGroupName -AccountName $blobStorageAccount -Location $location -SkuName Standard_LRS -Kind StorageV2
+
+#Create a function app
+$functionapp="imagesiasx-funcApp"  
+New-AzFunctionApp -Location $location -Name $functionapp -ResourceGroupName $resourceGroupName -Runtime PowerShell -StorageAccountName $blobStorageAccount
+
+#Deploy the function code
+az functionapp deployment source config --name $functionapp --resource-group $resourceGroupName --branch master --manual-integration --repo-url https://github.com/csxdigital/storage-blob-resize-function-node
+             
+
+#Configure the function app for Node.js v10 SDK
+$blobStorageAccountKey=$(az storage account keys list -g $resourceGroupName -n $blobStorageAccount --query [0].value --output tsv)
+$storageConnectionString=$(az storage account show-connection-string --resource-group $resourceGroupName --name $blobStorageAccount --query connectionString --output tsv)
+az functionapp config appsettings set --name $functionapp --resource-group $resourceGroupName --settings FUNCTIONS_EXTENSION_VERSION=~2 BLOB_CONTAINER_NAME=$container2Name AZURE_STORAGE_ACCOUNT_NAME=$blobStorageAccount AZURE_STORAGE_ACCOUNT_ACCESS_KEY=$blobStorageAccountKey AZURE_STORAGE_CONNECTION_STRING=$storageConnectionString FUNCTIONS_WORKER_RUNTIME=node WEBSITE_NODE_DEFAULT_VERSION=~10
+
+
+
+#For the error "The subscription is not registered to use namespace 'Microsoft.EventGrid'"
+Register-AzureRmResourceProvider -ProviderNamespace Microsoft.EventGrid
+
+
+
+# CONFIGURAÇÃO DO SERVIÇO PARA HOSPEDAR IMAGENS - AZURE BLOB STORAGE
+VITE_CONTAINER_NAME='imgsresized' or 'imgsuploaded'
+VITE_STORAGE_SAS_TOKEN='?sv=2021-06-08&ss=bfqt&srt=co&sp=rwdlacupitfx&se=3000-01-24T04:27:38Z&st=2023-01-23T20:27:38Z&spr=https&sig=J04jORMdTymGtZfIP2hgKSiwZFTMCVBhXQuAFjmROE4%3D'
+VITE_STORAGE_RESOURCE_NAME='imagesiasx'
